@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime
-import re
 
 # ① レイアウトをワイドに設定
 st.set_page_config(layout="wide", page_title="SHOWROOM属性分析ツール")
@@ -22,6 +21,7 @@ def load_master_data():
     return events, orgs
 
 events_df, org_df = load_master_data()
+# オーガナイザーIDをキーにした辞書作成
 org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
 if st.button('全件属性分析を開始'):
@@ -39,11 +39,9 @@ if st.button('全件属性分析を開始'):
         eid = event_data['event_id']
         ename = event_data['event_name']
         
-        # Vol数だけを数字として抽出（グラフの並び替え用）
-        vol_match = re.search(r'vol\.(\d+)', ename.lower())
-        vol_num = int(vol_match.group(1)) if vol_match else 0
-        
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
+        
+        # 期間の変換
         start_dt = datetime.fromtimestamp(event_data['started_at']).strftime('%Y/%m/%d %H:%M')
         end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
         event_period = f"{start_dt} - {end_dt}"
@@ -52,6 +50,7 @@ if st.button('全件属性分析を開始'):
         
         all_rooms = []
         page = 1
+        
         while True:
             api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={eid}&p={page}"
             try:
@@ -80,20 +79,22 @@ if st.button('全件属性分析を開始'):
         for r in all_rooms[:10]:
             oid = str(r.get("organizer_id"))
             is_off = r.get("is_official") == 1
+            rid = str(r.get("room_id"))
+            profile_url = f"https://www.showroom-live.com/room/profile?room_id={rid}"
+            
             top_10.append({
                 "順位": r.get("rank"),
                 "ルーム名": r.get("room_name"),
-                "ルームID": f"https://www.showroom-live.com/room/profile?room_id={r.get('room_id')}",
+                "ルームID": profile_url,
                 "ポイント": f"{r.get('point', 0):,}",
                 "公式 or フリー": "公式" if is_off else "フリー",
                 "所属先": org_map.get(oid, f"不明({oid})") if is_off else ""
             })
         
         all_summary.append({
-            "event_id": eid,
-            "vol_num": vol_num, # 並び替え用の数値
+            "event_id": eid,         # ソート用に保持
             "full_name": ename,
-            "short_name": f"Vol.{vol_num}", # ラベル用
+            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
             "event_url": event_url,
             "period": event_period,
             "total": total_count,
@@ -103,6 +104,7 @@ if st.button('全件属性分析を開始'):
             "free_ratio": free_ratio,
             "top_10_details": top_10
         })
+        
         overall_progress.progress((index + 1) / total_events)
 
     status_text.text("すべてのデータの取得が完了しました。")
@@ -111,31 +113,49 @@ if st.button('全件属性分析を開始'):
     if all_summary:
         st.write("### 属性推移グラフ")
         
+        # --- 修正ポイント ---
         # 1. DataFrameに変換
         chart_df = pd.DataFrame(all_summary)
+        # 2. event_idを数値として昇順（古い順）にソート
+        chart_df = chart_df.sort_values('event_id', ascending=True)
         
-        # 2. 数値であるvol_numで昇順ソート（古い順）
-        chart_df = chart_df.sort_values('vol_num', ascending=True)
-        
-        # 3. インデックスをshort_nameに設定して、グラフのX軸に強制
-        chart_df_plot = chart_df.set_index("short_name")[["total", "official", "free"]]
-        
-        # 折れ線グラフの表示（xを指定せず、インデックス順に描画させる）
+        # 折れ線グラフの表示
         st.line_chart(
-            chart_df_plot,
+            chart_df,
+            x="short_name",
+            y=["total", "official", "free"],
             color=["#000000", "#FF4B4B", "#0083B8"]
         )
         st.write("---")
 
-    # --- アコーディオン表示 ---
+    # --- アコーディオン表示（こちらは最新順のまま） ---
     for data in all_summary:
         with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
             st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
             st.caption(f"期間: {data['period']}")
+            
             c1, c2, c3 = st.columns(3)
             c1.metric("総数", data['total'])
-            c2.markdown(f"公式: {data['official']} ({data['off_ratio']:.1f}%)")
-            c3.markdown(f"フリー: {data['free']} ({data['free_ratio']:.1f}%)")
+            
+            c2.markdown(
+                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
+                <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
+                unsafe_allow_html=True
+            )
+            
+            c3.markdown(
+                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
+                <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
+                unsafe_allow_html=True
+            )
             
             st.write("#### 上位10ルーム内訳")
-            st.dataframe(pd.DataFrame(data['top_10_details']), use_container_width=True, hide_index=True)
+            df_top10 = pd.DataFrame(data['top_10_details'])
+            st.dataframe(
+                df_top10,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$"),
+                }
+            )
