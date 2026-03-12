@@ -17,38 +17,42 @@ ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
 def load_master_data():
     events = pd.read_csv(EVENT_CSV_URL)
     orgs = pd.read_csv(ORG_CSV_URL)
-    # ビギナーチャレンジのみ抽出（新しい順に並べておく）
+    # ビギナーチャレンジのみ抽出（最新順）
     events = events[events['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
     events = events.sort_values('event_id', ascending=False)
     return events, orgs
 
 events_df, org_df = load_master_data()
-# オーガナイザーIDをキーにした辞書作成
 org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
-# --- ② 選択UIの設定 ---
-st.sidebar.header("取得対象の設定")
-is_all_events = st.sidebar.checkbox("すべてのイベントを対象にする", value=False)
+# --- UI改善：メインエリアでの選択設定 ---
+st.write("### 取得・分析の設定")
+c_ui1, c_ui2 = st.columns([1, 3])
 
-if is_all_events:
-    selected_event_names = events_df['event_name'].tolist()
-    st.sidebar.info(f"全 {len(selected_event_names)} 件のイベントを処理します。")
-else:
-    # デフォルトで最新の1件を選択状態にする
-    selected_event_names = st.sidebar.multiselect(
-        "分析対象を選択してください",
-        options=events_df['event_name'].tolist(),
-        default=events_df['event_name'].tolist()[0] if not events_df.empty else None
-    )
+with c_ui1:
+    mode = st.radio("取得モード", ["全件取得", "個別選択"], index=1)
 
-# --- 実行ボタン ---
-if st.button('属性分析を開始') and selected_event_names:
+with c_ui2:
+    if mode == "全件取得":
+        selected_event_names = events_df['event_name'].tolist()
+        st.info(f"全 {len(selected_event_names)} 件のイベントを処理対象にします。")
+    else:
+        # メインエリアに置くことで横幅を確保し、Vol名を見やすくする
+        selected_event_names = st.multiselect(
+            "分析対象のイベントを選択してください（複数選択可）",
+            options=events_df['event_name'].tolist(),
+            default=events_df['event_name'].tolist()[0] if not events_df.empty else None
+        )
+
+# 実行ボタン
+if st.button('属性分析を開始', type='primary') and selected_event_names:
     all_summary = []
     
     # 選択された名前でフィルタリング
     target_events = events_df[events_df['event_name'].isin(selected_event_names)]
     total_events = len(target_events)
     
+    st.write(f"---")
     st.write(f"### 取得進捗 ({total_events}件)")
     overall_progress = st.progress(0)
     status_text = st.empty()
@@ -56,7 +60,6 @@ if st.button('属性分析を開始') and selected_event_names:
     for index, (_, event_data) in enumerate(target_events.iterrows()):
         eid = event_data['event_id']
         ename = event_data['event_name']
-        
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
         
         # 期間の変換
@@ -130,7 +133,7 @@ if st.button('属性分析を開始') and selected_event_names:
     st.write("---")
 
     if all_summary:
-        # --- グラフ表示 ---
+        # グラフ描画（古い順）
         st.write("### 属性推移グラフ")
         chart_df = pd.DataFrame(all_summary)
         chart_df = chart_df.sort_values('event_id', ascending=True)
@@ -155,8 +158,7 @@ if st.button('属性分析を開始') and selected_event_names:
         st.altair_chart(chart, use_container_width=True)
         st.write("---")
 
-        # --- アコーディオン表示 ---
-        # 表示は最新順にするため、event_idで降順ソート
+        # アコーディオン（最新順）
         display_summary = sorted(all_summary, key=lambda x: x['event_id'], reverse=True)
         for data in display_summary:
             with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
@@ -165,28 +167,12 @@ if st.button('属性分析を開始') and selected_event_names:
                 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("総数", data['total'])
-                
-                c2.markdown(
-                    f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
-                    <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
-                    unsafe_allow_html=True
-                )
-                
-                c3.markdown(
-                    f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
-                    <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
-                    unsafe_allow_html=True
-                )
+                c2.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p><p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
+                c3.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p><p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
                 
                 st.write("#### 上位10ルーム内訳")
                 df_top10 = pd.DataFrame(data['top_10_details'])
-                st.dataframe(
-                    df_top10,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$"),
-                    }
-                )
-elif not selected_event_names:
+                st.dataframe(df_top10, use_container_width=True, hide_index=True, column_config={"ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$")})
+
+elif not selected_event_names and mode == "個別選択":
     st.warning("対象のイベントを1つ以上選択してください。")
