@@ -80,14 +80,14 @@ if st.button('全件属性分析を開始'):
             rid = str(r.get("room_id"))
             rname = r.get("room_name")
             
-            # ルーム名をリンクにするためのURL
+            # ルームIDをリンクにするためのプロフィールURLを直接生成
             profile_url = f"https://www.showroom-live.com/room/profile?room_id={rid}"
             
             top_10.append({
                 "順位": r.get("rank"),
-                "ルーム名": profile_url, # URL自体を格納
-                "表示用ルーム名": rname,    # リンクとして表示したいテキスト
-                "ルームID": rid,
+                "ルーム名": rname,    # ここは確実に名前をテキスト表示
+                "ルームID": profile_url, # ここにリンクURLを格納
+                "表示用ID": rid,      # リンクのラベルとして使う数字
                 "ポイント": f"{r.get('point', 0):,}",
                 "公式 or フリー": "公式" if is_off else "フリー",
                 "所属先": org_map.get(oid, f"不明({oid})") if is_off else ""
@@ -123,15 +123,14 @@ if st.button('全件属性分析を開始'):
                 df_top10,
                 use_container_width=True,
                 hide_index=True,
-                # 表示する列の順番を指定（「表示用ルーム名」は非表示にする）
+                # 列の並び順（表示用IDはリンクのラベルとして使うので列としては隠す）
                 column_order=("順位", "ルーム名", "ルームID", "ポイント", "公式 or フリー", "所属先"),
                 column_config={
-                    "ルーム名": st.column_config.LinkColumn(
-                        "ルーム名",
-                        # ここでデータフレーム内の「表示用ルーム名」列の値を表示テキストとして使う
-                        display_text="表示用ルーム名" 
+                    "ルーム名": st.column_config.TextColumn("ルーム名"),
+                    "ルームID": st.column_config.LinkColumn(
+                        "ルームID",
+                        display_text="表示用ID" # リンクの見た目をルームID（数字）にする
                     ),
-                    "ルームID": st.column_config.TextColumn("ルームID"),
                     "ポイント": st.column_config.TextColumn("ポイント"),
                 }
             )
