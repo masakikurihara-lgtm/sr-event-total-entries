@@ -3,69 +3,72 @@ import pandas as pd
 import requests
 import time
 
-st.title("SHOWROOM ビギナーチャレンジ統計")
+st.title("SHOWROOM ビギナーチャレンジ属性分析")
 
-# 1. CSVの読み込み
-csv_url = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
+# 各種ソースURL
+EVENT_CSV_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
+ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
 
 @st.cache_data
-def load_and_filter_data(url):
-    df = pd.read_csv(url)
-    # 「ビギナーチャレンジ」を含むイベントのみ抽出
-    return df[df['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
+def load_master_data():
+    events = pd.read_csv(EVENT_CSV_URL)
+    orgs = pd.read_csv(ORG_CSV_URL)
+    # ビギナーチャレンジのみ抽出
+    events = events[events['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
+    return events, orgs
 
-df_filtered = load_and_filter_data(csv_url)
+events_df, org_df = load_master_data()
+org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
-if st.button('データ取得開始'):
-    results = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+if st.button('属性分析を開始'):
+    all_summary = []
     
-    total = len(df_filtered)
-    
-    for i, (index, row) in enumerate(df_filtered.iterrows()):
-        event_id = row['event_id']
-        event_name = row['event_name']
-        
-        status_text.text(f"取得中: {event_name}...")
-        
-        api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={event_id}&p=1"
+    for _, row in events_df.iterrows():
+        eid = row['event_id']
+        ename = row['event_name']
+        api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={eid}&p=1"
         
         try:
-            response = requests.get(api_url, timeout=10)
-            data = response.json()
-            count = data.get("total_entries", 0)
+            res = requests.get(api_url, timeout=10).json()
+            rooms = res.get("list", [])
+            total_entries = res.get("total_entries", 0)
             
-            results.append({
-                "vol": event_name.replace("SHOWROOM ビギナーチャレンジ ", ""),
-                "event_id": event_id,
-                "count": count
+            if not rooms: continue
+
+            # 全体の公式・フリー集計
+            official_count = sum(1 for r in rooms if r.get("is_official") == 1)
+            free_count = total_entries - official_count # 1ページ目以外も考慮した概算
+
+            # 上位10名の分析
+            top_10 = []
+            for r in rooms[:10]:
+                oid = str(r.get("organizer_id"))
+                top_10.append({
+                    "rank": r.get("rank"),
+                    "name": r.get("room_name"),
+                    "point": r.get("point"),
+                    "org": org_map.get(oid, f"不明({oid})") if r.get("is_official") else "フリー"
+                })
+            
+            all_summary.append({
+                "vol": ename.replace("SHOWROOM ビギナーチャレンジ ", ""),
+                "total": total_entries,
+                "official": official_count,
+                "free": free_count,
+                "top_10_details": top_10
             })
+            
         except Exception as e:
-            st.error(f"エラー（ID:{event_id}）: {e}")
+            st.warning(f"ID:{eid} 取得失敗")
         
-        # 進捗更新
-        progress_bar.progress((i + 1) / total)
-        time.sleep(0.1) # サーバー負荷軽減
+        time.sleep(0.2)
 
-    # 結果の処理
-    result_df = pd.DataFrame(results)
-    
-    # 修正ポイント: 正規表現を (\d+) にし、エラー回避のために errors='coerce' を指定
-    result_df['vol_num'] = result_df['vol'].str.extract('(\d+)').astype(float)
-    result_df = result_df.dropna(subset=['vol_num']).sort_values('vol_num')
-    result_df['vol_num'] = result_df['vol_num'].astype(int)
-
-    status_text.text("取得完了！")
-    
-    # テーブル表示
-    st.write("### 集計結果")
-    st.dataframe(result_df[['vol', 'event_id', 'count']], use_container_width=True)
-    
-    # 折れ線グラフ表示
-    st.write("### 参加ルーム数推移")
-    st.line_chart(data=result_df, x='vol', y='count')
-
-    # CSVダウンロードボタン
-    csv = result_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("結果をCSVでダウンロード", csv, "beginner_challenge_stats.csv", "text/csv")
+    # 画面表示
+    for data in reversed(all_summary): # 直近から表示
+        with st.expander(f"{data['vol']} (全{data['total']}ルーム)"):
+            col1, col2 = st.columns(2)
+            col1.metric("公式", data['official'])
+            col2.metric("フリー", data['free'])
+            
+            st.write("### 上位10ルーム内訳")
+            st.table(pd.DataFrame(data['top_10_details']))
