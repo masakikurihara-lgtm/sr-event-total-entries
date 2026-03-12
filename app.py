@@ -92,7 +92,7 @@ if st.button('全件属性分析を開始'):
             })
         
         all_summary.append({
-            "event_id": eid,         # ソート用に保持
+            "event_id": eid,
             "full_name": ename,
             "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
             "event_url": event_url,
@@ -113,22 +113,22 @@ if st.button('全件属性分析を開始'):
     if all_summary:
         st.write("### 属性推移グラフ")
         
-        # --- 修正ポイント ---
+        # --- グラフ表示用のデータ整形のみ実施 ---
         # 1. DataFrameに変換
         chart_df = pd.DataFrame(all_summary)
         # 2. event_idを数値として昇順（古い順）にソート
         chart_df = chart_df.sort_values('event_id', ascending=True)
+        # 3. short_nameをインデックスに設定（これがX軸の並び順を固定する鍵です）
+        chart_df = chart_df.set_index('short_name')
         
-        # 折れ線グラフの表示
+        # 折れ線グラフの表示（x=を指定せず、インデックスの順序で描画させる）
         st.line_chart(
-            chart_df,
-            x="short_name",
-            y=["total", "official", "free"],
+            chart_df[["total", "official", "free"]],
             color=["#000000", "#FF4B4B", "#0083B8"]
         )
         st.write("---")
 
-    # --- アコーディオン表示（こちらは最新順のまま） ---
+    # --- アコーディオン表示（取得順＝最新順のまま） ---
     for data in all_summary:
         with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
             st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
