@@ -40,6 +40,9 @@ if st.button('全件属性分析を開始'):
         eid = event_data['event_id']
         ename = event_data['event_name']
         
+        # イベントURLの生成
+        event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
+        
         # 期間の変換 (UNIXタイムスタンプを文字列へ)
         start_dt = datetime.fromtimestamp(event_data['started_at']).strftime('%Y/%m/%d %H:%M')
         end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
@@ -102,8 +105,9 @@ if st.button('全件属性分析を開始'):
             })
         
         all_summary.append({
-            "vol": ename.replace("SHOWROOM ビギナーチャレンジ ", ""),
-            "period": event_period, # 期間データを追加
+            "full_name": ename,      # 正式名称を保持
+            "event_url": event_url,  # イベントURLを保持
+            "period": event_period,
             "total": total_count,
             "official": official_count,
             "off_ratio": off_ratio,
@@ -119,13 +123,17 @@ if st.button('全件属性分析を開始'):
 
     # --- 画面表示 ---
     for data in all_summary:
-        with st.expander(f"{data['vol']} (全 {data['total']} ルーム)"):
-            # 総数の上に期間を表示
+        # アコーディオンタイトルをフルネームに修正
+        with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
+            
+            # イベント詳細へのリンク
+            st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
+            # 期間表示
             st.caption(f"期間: {data['period']}")
             
             c1, c2, c3 = st.columns(3)
             
-            # 総数は通常のmetric
+            # 総数
             c1.metric("総数", data['total'])
             
             # 公式
