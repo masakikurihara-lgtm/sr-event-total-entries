@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime
+import altair as alt
 
 # ① レイアウトをワイドに設定
 st.set_page_config(layout="wide", page_title="SHOWROOM属性分析ツール")
@@ -16,22 +17,39 @@ ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
 def load_master_data():
     events = pd.read_csv(EVENT_CSV_URL)
     orgs = pd.read_csv(ORG_CSV_URL)
-    # ビギナーチャレンジのみ抽出
+    # ビギナーチャレンジのみ抽出（新しい順に並べておく）
     events = events[events['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
+    events = events.sort_values('event_id', ascending=False)
     return events, orgs
 
 events_df, org_df = load_master_data()
 # オーガナイザーIDをキーにした辞書作成
 org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
-if st.button('全件属性分析を開始'):
+# --- ② 選択UIの設定 ---
+st.sidebar.header("取得対象の設定")
+is_all_events = st.sidebar.checkbox("すべてのイベントを対象にする", value=False)
+
+if is_all_events:
+    selected_event_names = events_df['event_name'].tolist()
+    st.sidebar.info(f"全 {len(selected_event_names)} 件のイベントを処理します。")
+else:
+    # デフォルトで最新の1件を選択状態にする
+    selected_event_names = st.sidebar.multiselect(
+        "分析対象を選択してください",
+        options=events_df['event_name'].tolist(),
+        default=events_df['event_name'].tolist()[0] if not events_df.empty else None
+    )
+
+# --- 実行ボタン ---
+if st.button('属性分析を開始') and selected_event_names:
     all_summary = []
     
-    # 画面表示用には降順（新しい順）で並べる
-    target_events = events_df.sort_values('event_id', ascending=False)
+    # 選択された名前でフィルタリング
+    target_events = events_df[events_df['event_name'].isin(selected_event_names)]
     total_events = len(target_events)
     
-    st.write("### 取得進捗")
+    st.write(f"### 取得進捗 ({total_events}件)")
     overall_progress = st.progress(0)
     status_text = st.empty()
     
@@ -112,19 +130,11 @@ if st.button('全件属性分析を開始'):
     st.write("---")
 
     if all_summary:
+        # --- グラフ表示 ---
         st.write("### 属性推移グラフ")
-        
-        # 1. グラフ用の一時的なDataFrame作成
         chart_df = pd.DataFrame(all_summary)
-        
-        # 2. event_id（数値）で昇順（古い順）にソート
         chart_df = chart_df.sort_values('event_id', ascending=True)
         
-        # 3. 【最重要】X軸を「数値」として認識させるため、event_idをインデックスにする
-        # ただし、表示はVol.xxにしたいので、Altairを使って描画します
-        import altair as alt
-
-        # データを「縦持ち」に変換（altairでの描画用）
         plot_data = chart_df.melt(
             id_vars=['short_name', 'event_id'], 
             value_vars=['total', 'official', 'free'],
@@ -145,34 +155,38 @@ if st.button('全件属性分析を開始'):
         st.altair_chart(chart, use_container_width=True)
         st.write("---")
 
-    # --- アコーディオン表示 ---
-    for data in all_summary:
-        with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
-            st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
-            st.caption(f"期間: {data['period']}")
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("総数", data['total'])
-            
-            c2.markdown(
-                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
-                <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
-                unsafe_allow_html=True
-            )
-            
-            c3.markdown(
-                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
-                <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
-                unsafe_allow_html=True
-            )
-            
-            st.write("#### 上位10ルーム内訳")
-            df_top10 = pd.DataFrame(data['top_10_details'])
-            st.dataframe(
-                df_top10,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$"),
-                }
-            )
+        # --- アコーディオン表示 ---
+        # 表示は最新順にするため、event_idで降順ソート
+        display_summary = sorted(all_summary, key=lambda x: x['event_id'], reverse=True)
+        for data in display_summary:
+            with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
+                st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
+                st.caption(f"期間: {data['period']}")
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("総数", data['total'])
+                
+                c2.markdown(
+                    f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
+                    <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
+                    unsafe_allow_html=True
+                )
+                
+                c3.markdown(
+                    f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
+                    <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
+                    unsafe_allow_html=True
+                )
+                
+                st.write("#### 上位10ルーム内訳")
+                df_top10 = pd.DataFrame(data['top_10_details'])
+                st.dataframe(
+                    df_top10,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$"),
+                    }
+                )
+elif not selected_event_names:
+    st.warning("対象のイベントを1つ以上選択してください。")
