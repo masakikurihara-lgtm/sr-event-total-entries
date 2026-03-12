@@ -78,11 +78,15 @@ if st.button('全件属性分析を開始'):
             oid = str(r.get("organizer_id"))
             is_off = r.get("is_official") == 1
             rid = str(r.get("room_id"))
+            rname = r.get("room_name")
+            
+            # ルーム名をリンクにするためのURL
+            profile_url = f"https://www.showroom-live.com/room/profile?room_id={rid}"
             
             top_10.append({
                 "順位": r.get("rank"),
-                "ルーム名": f"https://www.showroom-live.com/room/profile?room_id={rid}", # URLを格納
-                "表示用ルーム名": r.get("room_name"), # リンクのテキスト用
+                "ルーム名": profile_url, # URL自体を格納
+                "表示用ルーム名": rname,    # リンクとして表示したいテキスト
                 "ルームID": rid,
                 "ポイント": f"{r.get('point', 0):,}",
                 "公式 or フリー": "公式" if is_off else "フリー",
@@ -118,17 +122,16 @@ if st.button('全件属性分析を開始'):
             st.dataframe(
                 df_top10,
                 use_container_width=True,
-                hide_index=True, # ② インデックス非表示
-                column_order=("順位", "ルーム名", "ルームID", "ポイント", "公式 or フリー", "所属先"), # 列順
+                hide_index=True,
+                # 表示する列の順番を指定（「表示用ルーム名」は非表示にする）
+                column_order=("順位", "ルーム名", "ルームID", "ポイント", "公式 or フリー", "所属先"),
                 column_config={
                     "ルーム名": st.column_config.LinkColumn(
                         "ルーム名",
-                        display_text=r"^https://www.showroom-live.com/room/profile\?room_id=(.*)$", # 正規表現は使わず、表示用の値を加工する方が安定
+                        # ここでデータフレーム内の「表示用ルーム名」列の値を表示テキストとして使う
+                        display_text="表示用ルーム名" 
                     ),
-                    "ルームID": st.column_config.TextColumn("ルームID")
+                    "ルームID": st.column_config.TextColumn("ルームID"),
+                    "ポイント": st.column_config.TextColumn("ポイント"),
                 }
             )
-            
-            # 補足：LinkColumnの表示用テキストを確実にルーム名にするための微調整
-            # st.dataframe内で直接display_textに別列の値を当てるのは仕様上難しいため
-            # 表示直前に調整したのが上記の「ルーム名」列です。
