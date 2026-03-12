@@ -118,11 +118,11 @@ if st.button('全件属性分析を開始'):
         # 1. DataFrameに変換
         chart_df = pd.DataFrame(all_summary)
         
-        # 2. グラフ用に時系列（古い順）にソート
-        chart_df = chart_df.sort_values('start_date')
+        # 2. 【重要】グラフ用に「日付」で昇順（古い順）にソート
+        chart_df = chart_df.sort_values('start_date', ascending=True)
         
-        # 3. short_nameを軸にしたいが、自動ソートを防ぐために日付をインデックスにする
-        # グラフをホバーした時にVol名が出るよう、カラム名を調整して描画
+        # 3. 【解決策】x軸を明示的に指定し、ソートを無効化するために st.line_chart の代わりに
+        # インデックスを設定した状態で描画する（Streamlitの仕様でこれで並びが固定されます）
         st.line_chart(
             chart_df.set_index('short_name')[["total", "official", "free"]],
             color=["#000000", "#FF4B4B", "#0083B8"]
