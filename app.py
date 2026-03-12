@@ -27,11 +27,10 @@ org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 if st.button('全件属性分析を開始'):
     all_summary = []
     
-    # イベントのリストを降順ソート
+    # 画面表示用には降順（新しい順）で並べる
     target_events = events_df.sort_values('event_id', ascending=False)
     total_events = len(target_events)
     
-    # プログレスバー
     st.write("### 取得進捗")
     overall_progress = st.progress(0)
     status_text = st.empty()
@@ -40,7 +39,6 @@ if st.button('全件属性分析を開始'):
         eid = event_data['event_id']
         ename = event_data['event_name']
         
-        # イベントURLの生成
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
         
         # 期間の変換
@@ -58,11 +56,9 @@ if st.button('全件属性分析を開始'):
             try:
                 res = requests.get(api_url, timeout=10).json()
                 rooms = res.get("list", [])
-                if not rooms:
-                    break
+                if not rooms: break
                 all_rooms.extend(rooms)
-                if res.get("next_page") is None:
-                    break
+                if res.get("next_page") is None: break
                 page += 1
                 time.sleep(0.05)
             except:
@@ -96,8 +92,9 @@ if st.button('全件属性分析を開始'):
             })
         
         all_summary.append({
+            "event_id": eid,         # ソート用に保持
             "full_name": ename,
-            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."), # グラフのラベル用
+            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
             "event_url": event_url,
             "period": event_period,
             "total": total_count,
@@ -114,22 +111,24 @@ if st.button('全件属性分析を開始'):
     st.write("---")
 
     if all_summary:
-        # --- グラフ表示セクション ---
         st.write("### 属性推移グラフ")
         
-        # グラフ用データの作成（時系列順にするためリバース）
-        chart_data = pd.DataFrame(all_summary[::-1])
+        # --- 修正ポイント ---
+        # 1. DataFrameに変換
+        chart_df = pd.DataFrame(all_summary)
+        # 2. event_idを数値として昇順（古い順）にソート
+        chart_df = chart_df.sort_values('event_id', ascending=True)
         
         # 折れ線グラフの表示
         st.line_chart(
-            chart_data,
+            chart_df,
             x="short_name",
             y=["total", "official", "free"],
-            color=["#000000", "#FF4B4B", "#0083B8"] # 黒:総数, 赤:公式, 青:フリー
+            color=["#000000", "#FF4B4B", "#0083B8"]
         )
         st.write("---")
 
-    # --- アコーディオン表示 ---
+    # --- アコーディオン表示（こちらは最新順のまま） ---
     for data in all_summary:
         with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
             st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
@@ -157,11 +156,6 @@ if st.button('全件属性分析を開始'):
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "ルーム名": st.column_config.TextColumn("ルーム名"),
-                    "ルームID": st.column_config.LinkColumn(
-                        "ルームID",
-                        display_text=r"room_id=(\d+)$"
-                    ),
-                    "ポイント": st.column_config.TextColumn("ポイント"),
+                    "ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$"),
                 }
             )
