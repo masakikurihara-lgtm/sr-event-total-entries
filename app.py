@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
+from datetime import datetime
 
 # ① レイアウトをワイドに設定
 st.set_page_config(layout="wide", page_title="SHOWROOM属性分析ツール")
@@ -38,6 +39,11 @@ if st.button('全件属性分析を開始'):
     for index, (_, event_data) in enumerate(target_events.iterrows()):
         eid = event_data['event_id']
         ename = event_data['event_name']
+        
+        # 期間の変換 (UNIXタイムスタンプを文字列へ)
+        start_dt = datetime.fromtimestamp(event_data['started_at']).strftime('%Y/%m/%d %H:%M')
+        end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
+        event_period = f"{start_dt} - {end_dt}"
         
         status_text.text(f"処理中 ({index+1}/{total_events}): {ename}")
         
@@ -97,6 +103,7 @@ if st.button('全件属性分析を開始'):
         
         all_summary.append({
             "vol": ename.replace("SHOWROOM ビギナーチャレンジ ", ""),
+            "period": event_period, # 期間データを追加
             "total": total_count,
             "official": official_count,
             "off_ratio": off_ratio,
@@ -113,19 +120,22 @@ if st.button('全件属性分析を開始'):
     # --- 画面表示 ---
     for data in all_summary:
         with st.expander(f"{data['vol']} (全 {data['total']} ルーム)"):
+            # 総数の上に期間を表示
+            st.caption(f"期間: {data['period']}")
+            
             c1, c2, c3 = st.columns(3)
             
             # 総数は通常のmetric
             c1.metric("総数", data['total'])
             
-            # 公式とフリーはHTMLを許可してカスタム表示
-            # style属性でフォントサイズを調整しています
+            # 公式
             c2.markdown(
                 f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
                 <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
                 unsafe_allow_html=True
             )
             
+            # フリー
             c3.markdown(
                 f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
                 <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
