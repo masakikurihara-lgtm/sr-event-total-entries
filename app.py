@@ -71,6 +71,10 @@ if st.button('全件属性分析を開始'):
         total_count = len(all_rooms)
         official_count = sum(1 for r in all_rooms if r.get("is_official") == 1)
         free_count = total_count - official_count
+        
+        # 割合算出
+        off_ratio = (official_count / total_count * 100) if total_count > 0 else 0
+        free_ratio = (free_count / total_count * 100) if total_count > 0 else 0
 
         # 上位10名のデータ整形
         top_10 = []
@@ -80,13 +84,12 @@ if st.button('全件属性分析を開始'):
             rid = str(r.get("room_id"))
             rname = r.get("room_name")
             
-            # ルームIDに直接プロフィールURLを格納
             profile_url = f"https://www.showroom-live.com/room/profile?room_id={rid}"
             
             top_10.append({
                 "順位": r.get("rank"),
-                "ルーム名": rname,    # 名前をテキストとして保持
-                "ルームID": profile_url, # URLを保持
+                "ルーム名": rname,
+                "ルームID": profile_url,
                 "ポイント": f"{r.get('point', 0):,}",
                 "公式 or フリー": "公式" if is_off else "フリー",
                 "所属先": org_map.get(oid, f"不明({oid})") if is_off else ""
@@ -96,7 +99,9 @@ if st.button('全件属性分析を開始'):
             "vol": ename.replace("SHOWROOM ビギナーチャレンジ ", ""),
             "total": total_count,
             "official": official_count,
+            "off_ratio": off_ratio,
             "free": free_count,
+            "free_ratio": free_ratio,
             "top_10_details": top_10
         })
         
@@ -109,15 +114,28 @@ if st.button('全件属性分析を開始'):
     for data in all_summary:
         with st.expander(f"{data['vol']} (全 {data['total']} ルーム)"):
             c1, c2, c3 = st.columns(3)
+            
+            # 総数は通常のmetric
             c1.metric("総数", data['total'])
-            c2.metric("公式", data['official'])
-            c3.metric("フリー", data['free'])
+            
+            # 公式とフリーはHTMLを許可してカスタム表示
+            # style属性でフォントサイズを調整しています
+            c2.markdown(
+                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p>
+                <p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>""",
+                unsafe_allow_html=True
+            )
+            
+            c3.markdown(
+                f"""<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p>
+                <p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>""",
+                unsafe_allow_html=True
+            )
             
             st.write("#### 上位10ルーム内訳")
             
             df_top10 = pd.DataFrame(data['top_10_details'])
             
-            # DataFrameの表示設定
             st.dataframe(
                 df_top10,
                 use_container_width=True,
@@ -126,7 +144,6 @@ if st.button('全件属性分析を開始'):
                     "ルーム名": st.column_config.TextColumn("ルーム名"),
                     "ルームID": st.column_config.LinkColumn(
                         "ルームID",
-                        # URLの末尾にある数字（room_id）だけを抜き出して表示する正規表現
                         display_text=r"room_id=(\d+)$"
                     ),
                     "ポイント": st.column_config.TextColumn("ポイント"),
