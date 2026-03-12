@@ -42,7 +42,8 @@ if st.button('全件属性分析を開始'):
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
         
         # 期間の変換
-        start_dt = datetime.fromtimestamp(event_data['started_at']).strftime('%Y/%m/%d %H:%M')
+        start_ts = event_data['started_at'] # グラフのソート用に保持
+        start_dt = datetime.fromtimestamp(start_ts).strftime('%Y/%m/%d %H:%M')
         end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
         event_period = f"{start_dt} - {end_dt}"
         
@@ -93,6 +94,7 @@ if st.button('全件属性分析を開始'):
         
         all_summary.append({
             "event_id": eid,
+            "start_date": pd.to_datetime(start_ts, unit='s'), # グラフ軸用（日付型）
             "full_name": ename,
             "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
             "event_url": event_url,
@@ -113,17 +115,16 @@ if st.button('全件属性分析を開始'):
     if all_summary:
         st.write("### 属性推移グラフ")
         
-        # --- グラフ表示用のデータ整形のみ実施 ---
         # 1. DataFrameに変換
         chart_df = pd.DataFrame(all_summary)
-        # 2. event_idを数値として昇順（古い順）にソート
-        chart_df = chart_df.sort_values('event_id', ascending=True)
-        # 3. short_nameをインデックスに設定（これがX軸の並び順を固定する鍵です）
-        chart_df = chart_df.set_index('short_name')
         
-        # 折れ線グラフの表示（x=を指定せず、インデックスの順序で描画させる）
+        # 2. グラフ用に時系列（古い順）にソート
+        chart_df = chart_df.sort_values('start_date')
+        
+        # 3. short_nameを軸にしたいが、自動ソートを防ぐために日付をインデックスにする
+        # グラフをホバーした時にVol名が出るよう、カラム名を調整して描画
         st.line_chart(
-            chart_df[["total", "official", "free"]],
+            chart_df.set_index('short_name')[["total", "official", "free"]],
             color=["#000000", "#FF4B4B", "#0083B8"]
         )
         st.write("---")
