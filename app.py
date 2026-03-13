@@ -1,178 +1,64 @@
-import streamlit as st
-import pandas as pd
 import requests
 import time
-from datetime import datetime
-import altair as alt
 
-# ① レイアウトをワイドに設定
-st.set_page_config(layout="wide", page_title="SHOWROOM属性分析ツール")
+def find_event_ids():
+    # 探索のヒント情報
+    targets = [
+        {"vol": 1, "room_id": 553840, "name": "SHOWROOM ビギナーチャレンジ vol.1"},
+        {"vol": 2, "room_id": 552276, "name": "SHOWROOM ビギナーチャレンジ vol.2"},
+        {"vol": 3, "room_id": 554687, "name": "SHOWROOM ビギナーチャレンジ vol.3"},
+        {"vol": 4, "room_id": 554806, "name": "SHOWROOM ビギナーチャレンジ vol.4"},
+        {"vol": 5, "room_id": 548165, "name": "SHOWROOM ビギナーチャレンジ vol.5"},
+    ]
 
-st.title("SHOWROOM ビギナーチャレンジ属性分析（全件精査版）")
-
-EVENT_CSV_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
-ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
-
-@st.cache_data
-def load_master_data():
-    events = pd.read_csv(EVENT_CSV_URL)
-    orgs = pd.read_csv(ORG_CSV_URL)
-    # ビギナーチャレンジのみ抽出（最新順）
-    events = events[events['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
-    events = events.sort_values('event_id', ascending=False)
-    return events, orgs
-
-events_df, org_df = load_master_data()
-org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
-
-# --- UI改善：メインエリアでの選択設定 ---
-st.write("### 取得・分析の設定")
-c_ui1, c_ui2 = st.columns([1, 3])
-
-with c_ui1:
-    mode = st.radio("取得モード", ["全件取得", "個別選択"], index=1)
-
-with c_ui2:
-    if mode == "全件取得":
-        selected_event_names = events_df['event_name'].tolist()
-        st.info(f"全 {len(selected_event_names)} 件のイベントを処理対象にします。")
-    else:
-        # メインエリアに置くことで横幅を確保し、Vol名を見やすくする
-        selected_event_names = st.multiselect(
-            "分析対象のイベントを選択してください（複数選択可）",
-            options=events_df['event_name'].tolist(),
-            default=events_df['event_name'].tolist()[0] if not events_df.empty else None
-        )
-
-# 実行ボタン
-if st.button('属性分析を開始', type='primary') and selected_event_names:
-    all_summary = []
+    # Vol.6が39733なので、そこから少し余裕を見て39700から下に向かって探します
+    start_id = 39732
+    end_id = 35000  # 十分な範囲
     
-    # 選択された名前でフィルタリング
-    target_events = events_df[events_df['event_name'].isin(selected_event_names)]
-    total_events = len(target_events)
+    found_results = {}
     
-    st.write(f"---")
-    st.write(f"### 取得進捗 ({total_events}件)")
-    overall_progress = st.progress(0)
-    status_text = st.empty()
+    print(f"探索を開始します (Range: {start_id} down to {end_id})...")
     
-    for index, (_, event_data) in enumerate(target_events.iterrows()):
-        eid = event_data['event_id']
-        ename = event_data['event_name']
-        event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
-        
-        # 期間の変換
-        start_ts = event_data['started_at']
-        start_dt = datetime.fromtimestamp(start_ts).strftime('%Y/%m/%d %H:%M')
-        end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
-        event_period = f"{start_dt} - {end_dt}"
-        
-        status_text.text(f"処理中 ({index+1}/{total_events}): {ename}")
-        
-        all_rooms = []
-        page = 1
-        
-        while True:
-            api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={eid}&p={page}"
-            try:
-                res = requests.get(api_url, timeout=10).json()
-                rooms = res.get("list", [])
-                if not rooms: break
-                all_rooms.extend(rooms)
-                if res.get("next_page") is None: break
-                page += 1
-                time.sleep(0.05)
-            except:
-                break
-        
-        if not all_rooms:
-            overall_progress.progress((index + 1) / total_events)
-            continue
-
-        total_count = len(all_rooms)
-        official_count = sum(1 for r in all_rooms if r.get("is_official") == 1)
-        free_count = total_count - official_count
-        
-        off_ratio = (official_count / total_count * 100) if total_count > 0 else 0
-        free_ratio = (free_count / total_count * 100) if total_count > 0 else 0
-
-        top_10 = []
-        for r in all_rooms[:10]:
-            oid = str(r.get("organizer_id"))
-            is_off = r.get("is_official") == 1
-            rid = str(r.get("room_id"))
-            profile_url = f"https://www.showroom-live.com/room/profile?room_id={rid}"
+    # 計算効率のため、未発見のターゲットがある間ループ
+    current_id = start_id
+    while current_id >= end_id and len(found_results) < len(targets):
+        # ターゲットごとに確認（まだ見つかっていないものだけ）
+        for target in targets:
+            if target["vol"] in found_results:
+                continue
+                
+            # 貢献ランキングAPIを叩く
+            api_url = f"https://www.showroom-live.com/api/event/contribution_ranking?event_id={current_id}&room_id={target['room_id']}"
             
-            top_10.append({
-                "順位": r.get("rank"),
-                "ルーム名": r.get("room_name"),
-                "ルームID": profile_url,
-                "ポイント": f"{r.get('point', 0):,}",
-                "公式 or フリー": "公式" if is_off else "フリー",
-                "所属先": org_map.get(oid, f"不明({oid})") if is_off else ""
-            })
+            try:
+                response = requests.get(api_url, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    # event情報の存在確認
+                    event_info = data.get("event", {})
+                    actual_name = event_info.get("event_name", "")
+                    
+                    if target["name"] == actual_name:
+                        print(f"【発見！】Vol.{target['vol']} の Event ID は '{current_id}' です。")
+                        found_results[target["vol"]] = {
+                            "event_id": current_id,
+                            "started_at": event_info.get("started_at"),
+                            "ended_at": event_info.get("ended_at"),
+                            "event_url_key": event_info.get("event_url", "").split("/")[-1]
+                        }
+            except Exception as e:
+                pass
         
-        all_summary.append({
-            "event_id": eid,
-            "full_name": ename,
-            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
-            "event_url": event_url,
-            "period": event_period,
-            "total": total_count,
-            "official": official_count,
-            "off_ratio": off_ratio,
-            "free": free_count,
-            "free_ratio": free_ratio,
-            "top_10_details": top_10
-        })
-        
-        overall_progress.progress((index + 1) / total_events)
+        current_id -= 1
+        # SHOWROOMのサーバーに負荷をかけすぎないよう少し待機
+        if current_id % 10 == 0:
+            print(f"現在 {current_id} 付近を探索中...")
+            time.sleep(0.5)
 
-    status_text.text("すべてのデータの取得が完了しました。")
-    st.write("---")
+    print("\n--- 探索結果まとめ ---")
+    for vol in sorted(found_results.keys()):
+        res = found_results[vol]
+        print(f"Vol.{vol}: ID={res['event_id']}, URL_KEY={res['event_url_key']}, Start={res['started_at']}, End={res['ended_at']}")
 
-    if all_summary:
-        # グラフ描画（古い順）
-        st.write("### 属性推移グラフ")
-        chart_df = pd.DataFrame(all_summary)
-        chart_df = chart_df.sort_values('event_id', ascending=True)
-        
-        plot_data = chart_df.melt(
-            id_vars=['short_name', 'event_id'], 
-            value_vars=['total', 'official', 'free'],
-            var_name='category', 
-            value_name='count'
-        )
-
-        chart = alt.Chart(plot_data).mark_line(point=True).encode(
-            x=alt.X('short_name:N', sort=alt.SortField('event_id', order='ascending'), title='イベント'),
-            y=alt.Y('count:Q', title='ルーム数'),
-            color=alt.Color('category:N', scale=alt.Scale(
-                domain=['total', 'official', 'free'],
-                range=['#000000', '#FF4B4B', '#0083B8']
-            ), title='属性'),
-            tooltip=['short_name', 'category', 'count']
-        ).properties(height=400).interactive()
-
-        st.altair_chart(chart, use_container_width=True)
-        st.write("---")
-
-        # アコーディオン（最新順）
-        display_summary = sorted(all_summary, key=lambda x: x['event_id'], reverse=True)
-        for data in display_summary:
-            with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
-                st.markdown(f"🔗 [イベント詳細を表示]({data['event_url']})")
-                st.caption(f"期間: {data['period']}")
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("総数", data['total'])
-                c2.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p><p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
-                c3.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p><p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
-                
-                st.write("#### 上位10ルーム内訳")
-                df_top10 = pd.DataFrame(data['top_10_details'])
-                st.dataframe(df_top10, use_container_width=True, hide_index=True, column_config={"ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$")})
-
-elif not selected_event_names and mode == "個別選択":
-    st.warning("対象のイベントを1つ以上選択してください。")
+if __name__ == "__main__":
+    find_event_ids()
