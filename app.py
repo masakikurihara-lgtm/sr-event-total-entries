@@ -1,42 +1,52 @@
+import streamlit as st
 import requests
 import time
 
-def find_missing_event_ids():
-    # 調査対象のルームIDと期待されるイベント名
-    targets = [
-        {"vol": 5, "room_id": 548165, "name": "SHOWROOM ビギナーチャレンジ vol.5"},
-        {"vol": 4, "room_id": 554806, "name": "SHOWROOM ビギナーチャレンジ vol.4"},
-        {"vol": 3, "room_id": 554687, "name": "SHOWROOM ビギナーチャレンジ vol.3"},
-        {"vol": 2, "room_id": 552276, "name": "SHOWROOM ビギナーチャレンジ vol.2"},
-        {"vol": 1, "room_id": 553840, "name": "SHOWROOM ビギナーチャレンジ vol.1"},
-    ]
+st.title("Vol.1〜5 イベントID特定ツール")
+st.write("Vol.6のID (39733) から遡って、APIを照合します。")
 
-    # Vol.6が39733なので、そこから1つずつカウントダウンして探します
-    current_id = 39732 
-    stop_id = 35000  # これ以上遡る必要はないと思われる範囲
+# 探索設定
+targets = [
+    {"vol": 5, "room_id": 548165, "name": "SHOWROOM ビギナーチャレンジ vol.5"},
+    {"vol": 4, "room_id": 554806, "name": "SHOWROOM ビギナーチャレンジ vol.4"},
+    {"vol": 3, "room_id": 554687, "name": "SHOWROOM ビギナーチャレンジ vol.3"},
+    {"vol": 2, "room_id": 552276, "name": "SHOWROOM ビギナーチャレンジ vol.2"},
+    {"vol": 1, "room_id": 553840, "name": "SHOWROOM ビギナーチャレンジ vol.1"},
+]
+
+if st.button("ID探索を開始"):
+    found_results = []
+    status_area = st.empty()
+    progress_bar = st.progress(0)
+    result_area = st.container()
     
-    found_count = 0
-    results = []
-
-    print(f"--- 探索開始: ID {current_id} から遡ります ---")
-
-    while current_id >= stop_id and found_count < len(targets):
-        # まだ見つかっていないターゲットの中から確認
+    current_id = 39732
+    # 探索範囲（Vol.1がさらに数千下にある可能性を考慮）
+    start_range = 39732
+    end_range = 34000 
+    
+    total_to_find = len(targets)
+    
+    while current_id >= end_range and len(found_results) < total_to_find:
+        # 進捗表示
+        percent = min(100, int((start_range - current_id) / (start_range - end_range) * 100))
+        progress_bar.progress(percent)
+        status_area.text(f"調査中... 現在のEvent ID: {current_id}")
+        
         for t in targets:
-            if any(r['vol'] == t['vol'] for r in results):
+            # 既に見つかったVolはスキップ
+            if any(r['vol'] == t['vol'] for r in found_results):
                 continue
-            
-            # 貢献ランキングAPIを叩く
+                
             url = f"https://www.showroom-live.com/api/event/contribution_ranking?event_id={current_id}&room_id={t['room_id']}"
             
             try:
-                res = requests.get(url, timeout=5).json()
+                res = requests.get(url, timeout=3).json()
                 event_data = res.get("event", {})
                 actual_name = event_data.get("event_name", "")
 
-                # イベント名が合致したら確定
                 if t['name'] == actual_name:
-                    found_info = {
+                    info = {
                         "vol": t['vol'],
                         "event_id": current_id,
                         "event_name": actual_name,
@@ -44,25 +54,27 @@ def find_missing_event_ids():
                         "started_at": event_data.get("started_at"),
                         "ended_at": event_data.get("ended_at")
                     }
-                    results.append(found_info)
-                    found_count += 1
-                    print(f"✅ 【発見】Vol.{t['vol']} => ID: {current_id}")
+                    found_results.append(info)
+                    st.success(f"✅ Vol.{t['vol']} 発見！ ID: {current_id}")
             except:
                 pass
         
         current_id -= 1
-        
-        # 進捗表示
-        if current_id % 100 == 0:
-            print(f"... ID {current_id} 付近を調査中 ...")
-        
-        # サーバー負荷軽減
-        time.sleep(0.02)
+        # 負荷対策
+        if current_id % 5 == 0:
+            time.sleep(0.01)
 
-    print("\n--- 探索完了！イベントアーカイブ用データ ---")
-    # Vol順に並び替えて表示
-    for r in sorted(results, key=lambda x: x['vol']):
-        print(f"{r['event_id']},{r['event_name']},{r['event_url_key']},{r['started_at']},{r['ended_at']}")
-
-if __name__ == "__main__":
-    find_missing_event_ids()
+    st.divider()
+    st.write("### 探索完了！ CSV追加用データ")
+    if found_results:
+        # Vol順にソート
+        found_results.sort(key=lambda x: x['vol'])
+        csv_lines = []
+        for r in found_results:
+            line = f"{r['event_id']},{r['event_name']},{r['event_url_key']},{r['started_at']},{r['ended_at']}"
+            csv_lines.append(line)
+        
+        st.code("\n".join(csv_lines), language="text")
+        st.write("上記の行をコピーして、sr-event-archive.csv の末尾に貼り付けてください。")
+    else:
+        st.error("指定範囲内でIDが見つかりませんでした。範囲を広げる必要があります。")
