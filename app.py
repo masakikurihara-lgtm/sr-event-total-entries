@@ -6,9 +6,13 @@ from datetime import datetime, timezone, timedelta
 import altair as alt
 
 # ① レイアウトをワイドに設定
-st.set_page_config(layout="wide", page_title="SHOWROOM属性分析ツール")
+st.set_page_config(layout="wide", page_title="SHOWROOM ビギチャレ属性分析ツール")
 
-st.title("SHOWROOM ビギナーチャレンジ属性分析（全件精査版）")
+# st.title("SHOWROOM ビギナーチャレンジ属性分析（全件精査版）")
+st.markdown(
+    "<h1 style='font-size:28px; text-align:center; color:#1f2937;'>SHOWROOM ビギナーチャレンジ属性分析</h1>",
+    unsafe_allow_html=True
+)
 
 EVENT_CSV_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
 ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
@@ -29,7 +33,7 @@ events_df, org_df = load_master_data()
 org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
 # --- UI改善：メインエリアでの選択設定 ---
-st.write("### 取得・分析の設定")
+st.write("#### 取得・分析の設定")
 c_ui1, c_ui2 = st.columns([1, 3])
 
 with c_ui1:
@@ -54,7 +58,7 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
     total_events = len(target_events)
     
     st.write(f"---")
-    st.write(f"### 取得進捗 ({total_events}件)")
+    st.write(f"#### 取得進捗 ({total_events}件)")
     overall_progress = st.progress(0)
     status_text = st.empty()
     
@@ -137,7 +141,7 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
     st.write("---")
 
     if all_summary:
-        st.write("### 属性推移グラフ")
+        st.write("#### 属性推移グラフ")
         chart_df = pd.DataFrame(all_summary)
         chart_df = chart_df.sort_values('event_id', ascending=True)
         
