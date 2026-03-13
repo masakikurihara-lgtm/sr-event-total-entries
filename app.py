@@ -14,6 +14,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+st.markdown("---")
+
 EVENT_CSV_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
 ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
 
