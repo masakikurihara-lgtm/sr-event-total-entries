@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import altair as alt
 
 # ① レイアウトをワイドに設定
@@ -12,6 +12,9 @@ st.title("SHOWROOM ビギナーチャレンジ属性分析（全件精査版）"
 
 EVENT_CSV_URL = "https://mksoul-pro.com/showroom/file/sr-event-archive.csv"
 ORG_CSV_URL = "https://mksoul-pro.com/showroom/file/organizer_list.csv"
+
+# 日本時間(JST)の定義
+JST = timezone(timedelta(hours=9))
 
 @st.cache_data
 def load_master_data():
@@ -37,7 +40,6 @@ with c_ui2:
         selected_event_names = events_df['event_name'].tolist()
         st.info(f"全 {len(selected_event_names)} 件のイベントを処理対象にします。")
     else:
-        # メインエリアに置くことで横幅を確保し、Vol名を見やすくする
         selected_event_names = st.multiselect(
             "分析対象のイベントを選択してください（複数選択可）",
             options=events_df['event_name'].tolist(),
@@ -48,7 +50,6 @@ with c_ui2:
 if st.button('属性分析を開始', type='primary') and selected_event_names:
     all_summary = []
     
-    # 選択された名前でフィルタリング
     target_events = events_df[events_df['event_name'].isin(selected_event_names)]
     total_events = len(target_events)
     
@@ -62,10 +63,13 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
         ename = event_data['event_name']
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
         
-        # 期間の変換
+        # --- 期間の変換（JST固定） ---
         start_ts = event_data['started_at']
-        start_dt = datetime.fromtimestamp(start_ts).strftime('%Y/%m/%d %H:%M')
-        end_dt = datetime.fromtimestamp(event_data['ended_at']).strftime('%Y/%m/%d %H:%M')
+        end_ts = event_data['ended_at']
+        
+        # timestampからUTCとしてdatetimeを作成し、JSTに変換
+        start_dt = datetime.fromtimestamp(start_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
+        end_dt = datetime.fromtimestamp(end_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
         event_period = f"{start_dt} - {end_dt}"
         
         status_text.text(f"処理中 ({index+1}/{total_events}): {ename}")
@@ -133,7 +137,6 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
     st.write("---")
 
     if all_summary:
-        # グラフ描画（古い順）
         st.write("### 属性推移グラフ")
         chart_df = pd.DataFrame(all_summary)
         chart_df = chart_df.sort_values('event_id', ascending=True)
@@ -158,7 +161,6 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
         st.altair_chart(chart, use_container_width=True)
         st.write("---")
 
-        # アコーディオン（最新順）
         display_summary = sorted(all_summary, key=lambda x: x['event_id'], reverse=True)
         for data in display_summary:
             with st.expander(f"{data['full_name']} (全 {data['total']} ルーム)"):
@@ -175,4 +177,4 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
                 st.dataframe(df_top10, use_container_width=True, hide_index=True, column_config={"ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$")})
 
 elif not selected_event_names and mode == "個別選択":
-    st.warning("対象のイベントを1つ以上選択してください。")
+    st.warning("対象의 イベントを1つ以上選択してください。")
