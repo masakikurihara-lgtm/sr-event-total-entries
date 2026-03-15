@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone, timedelta
 import altair as alt
 
-# ① レイアウトをワイドに設定
+# ① レイアウト設定
 st.set_page_config(layout="wide", page_title="SHOWROOM ビギチャレ属性分析ツール")
 
 st.markdown(
@@ -25,7 +25,6 @@ JST = timezone(timedelta(hours=9))
 def load_master_data():
     events = pd.read_csv(EVENT_CSV_URL)
     orgs = pd.read_csv(ORG_CSV_URL)
-    # ビギナーチャレンジのみ抽出（最新順）
     events = events[events['event_name'].str.contains("ビギナーチャレンジ", na=False)].copy()
     events = events.sort_values('event_id', ascending=False)
     return events, orgs
@@ -33,7 +32,7 @@ def load_master_data():
 events_df, org_df = load_master_data()
 org_map = dict(zip(org_df.iloc[:, 0].astype(str), org_df.iloc[:, 1]))
 
-# --- UI改善：メインエリアでの選択設定 ---
+# --- UI：メインエリアでの選択設定 ---
 st.write("#### 取得・分析の設定")
 c_ui1, c_ui2 = st.columns([1, 3])
 
@@ -54,7 +53,6 @@ with c_ui2:
 # 実行ボタン
 if st.button('属性分析を開始', type='primary') and selected_event_names:
     all_summary = []
-    
     target_events = events_df[events_df['event_name'].isin(selected_event_names)]
     total_events = len(target_events)
     
@@ -68,60 +66,69 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
         ename = event_data['event_name']
         event_url = f"https://www.showroom-live.com/event/{event_data['event_url_key']}"
         
-        # --- 期間の変換（JST固定） ---
         start_ts = event_data['started_at']
         end_ts = event_data['ended_at']
-        
         start_dt = datetime.fromtimestamp(start_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
         end_dt = datetime.fromtimestamp(end_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
         event_period = f"{start_dt} - {end_dt}"
         
-        all_rooms = []
+        all_rooms_data = [] # 生データ保持用
+        seen_room_ids = set() # 重複排除用
         page = 1
-        expected_total = 0
+        total_entries_const = 0 # APIの総数を保持
         
         while True:
             api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={eid}&p={page}"
             try:
                 res = requests.get(api_url, timeout=10).json()
                 
-                # 最初のページで本来あるべき総数(total_entries)を取得
+                # 1ページ目で、マスターとなる総数を取得
                 if page == 1:
-                    expected_total = int(res.get("total_entries", 0))
+                    total_entries_const = int(res.get("total_entries", 0))
                 
                 rooms = res.get("list", [])
                 if not rooms:
                     break
                 
-                all_rooms.extend(rooms)
+                # 重複を排除しながらデータを蓄積
+                for r in rooms:
+                    rid = r.get("room_id")
+                    if rid not in seen_room_ids:
+                        seen_room_ids.add(rid)
+                        all_rooms_data.append(r)
                 
-                # 進捗表示に実数と公称数を表示
-                status_text.text(f"処理中 ({index+1}/{total_events}): {ename} ({len(all_rooms)}/{expected_total})")
+                status_text.text(f"処理中 ({index+1}/{total_events}): {ename} ({len(all_rooms_data)}/{total_entries_const})")
                 
-                # 【重要修正】総数に達したらループを抜ける。達していない場合は next_page がなくても継続。
-                if len(all_rooms) >= expected_total:
+                # 全件取得、あるいは次ページがなければ終了
+                if len(all_rooms_data) >= total_entries_const or res.get("next_page") is None:
                     break
                 
-                # 次のページへ
                 page += 1
                 time.sleep(0.05)
             except:
                 break
         
-        if not all_rooms:
+        if total_entries_const == 0 and not all_rooms_data:
             overall_progress.progress((index + 1) / total_events)
             continue
 
-        # 実数を正として計算（万が一APIのバグで数件超えても実数を優先）
-        total_count = len(all_rooms)
-        official_count = sum(1 for r in all_rooms if r.get("is_official") == 1)
+        # --- 集計ロジックの修正 ---
+        # 1. 総数はAPIの数字をそのまま使う
+        total_count = total_entries_const
+        
+        # 2. 公式数は、実際に取得できたデータから判定（重複排除済み）
+        official_count = sum(1 for r in all_rooms_data if r.get("is_official") == 1)
+        
+        # 3. フリー数は、総数から公式数を引いた「差分」とする（整合性重視）
         free_count = total_count - official_count
         
+        # 比率計算
         off_ratio = (official_count / total_count * 100) if total_count > 0 else 0
         free_ratio = (free_count / total_count * 100) if total_count > 0 else 0
 
+        # 上位10ルーム（表示用）
         top_10 = []
-        for r in all_rooms[:10]:
+        for r in all_rooms_data[:10]:
             oid = str(r.get("organizer_id"))
             is_off = r.get("is_official") == 1
             rid = str(r.get("room_id"))
@@ -157,23 +164,13 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
 
     if all_summary:
         st.write("#### 属性推移グラフ")
-        chart_df = pd.DataFrame(all_summary)
-        chart_df = chart_df.sort_values('event_id', ascending=True)
-        
-        plot_data = chart_df.melt(
-            id_vars=['short_name', 'event_id'], 
-            value_vars=['total', 'official', 'free'],
-            var_name='category', 
-            value_name='count'
-        )
+        chart_df = pd.DataFrame(all_summary).sort_values('event_id', ascending=True)
+        plot_data = chart_df.melt(id_vars=['short_name', 'event_id'], value_vars=['total', 'official', 'free'], var_name='category', value_name='count')
 
         chart = alt.Chart(plot_data).mark_line(point=True).encode(
             x=alt.X('short_name:N', sort=alt.SortField('event_id', order='ascending'), title='イベント'),
             y=alt.Y('count:Q', title='ルーム数'),
-            color=alt.Color('category:N', scale=alt.Scale(
-                domain=['total', 'official', 'free'],
-                range=['#000000', '#FF4B4B', '#0083B8']
-            ), title='属性'),
+            color=alt.Color('category:N', scale=alt.Scale(domain=['total', 'official', 'free'], range=['#000000', '#FF4B4B', '#0083B8']), title='属性'),
             tooltip=['short_name', 'category', 'count']
         ).properties(height=400).interactive()
 
@@ -188,8 +185,8 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
                 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("総数", data['total'])
-                c2.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>公式</p><p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
-                c3.markdown(f"<p style='margin-bottom:0px;color:rgba(49, 51, 63, 0.6);font-size:14px;'>フリー</p><p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
+                c2.markdown(f"<p style='margin-bottom:0px;color:gray;font-size:14px;'>公式</p><p style='font-size:28px;font-weight:600;'>{data['official']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['off_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
+                c3.markdown(f"<p style='margin-bottom:0px;color:gray;font-size:14px;'>フリー</p><p style='font-size:28px;font-weight:600;'>{data['free']} <span style='font-size:16px;font-weight:400;color:gray;'>({data['free_ratio']:.1f}%)</span></p>", unsafe_allow_html=True)
                 
                 st.write("#### 上位10ルーム内訳")
                 df_top10 = pd.DataFrame(data['top_10_details'])
