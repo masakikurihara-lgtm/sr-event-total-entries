@@ -8,7 +8,6 @@ import altair as alt
 # ① レイアウトをワイドに設定
 st.set_page_config(layout="wide", page_title="SHOWROOM ビギチャレ属性分析ツール")
 
-# st.title("SHOWROOM ビギナーチャレンジ属性分析（全件精査版）")
 st.markdown(
     "<h1 style='font-size:28px; text-align:center; color:#1f2937;'>SHOWROOM ビギナーチャレンジ属性分析</h1>",
     unsafe_allow_html=True
@@ -73,24 +72,37 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
         start_ts = event_data['started_at']
         end_ts = event_data['ended_at']
         
-        # timestampからUTCとしてdatetimeを作成し、JSTに変換
         start_dt = datetime.fromtimestamp(start_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
         end_dt = datetime.fromtimestamp(end_ts, timezone.utc).astimezone(JST).strftime('%Y/%m/%d %H:%M')
         event_period = f"{start_dt} - {end_dt}"
         
-        status_text.text(f"処理中 ({index+1}/{total_events}): {ename}")
-        
         all_rooms = []
         page = 1
+        expected_total = 0
         
         while True:
             api_url = f"https://www.showroom-live.com/api/event/room_list?event_id={eid}&p={page}"
             try:
                 res = requests.get(api_url, timeout=10).json()
+                
+                # 最初のページで本来あるべき総数(total_entries)を取得
+                if page == 1:
+                    expected_total = int(res.get("total_entries", 0))
+                
                 rooms = res.get("list", [])
-                if not rooms: break
+                if not rooms:
+                    break
+                
                 all_rooms.extend(rooms)
-                if res.get("next_page") is None: break
+                
+                # 進捗表示に実数と公称数を表示
+                status_text.text(f"処理中 ({index+1}/{total_events}): {ename} ({len(all_rooms)}/{expected_total})")
+                
+                # 【重要修正】総数に達したらループを抜ける。達していない場合は next_page がなくても継続。
+                if len(all_rooms) >= expected_total:
+                    break
+                
+                # 次のページへ
                 page += 1
                 time.sleep(0.05)
             except:
@@ -100,6 +112,7 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
             overall_progress.progress((index + 1) / total_events)
             continue
 
+        # 実数を正として計算（万が一APIのバグで数件超えても実数を優先）
         total_count = len(all_rooms)
         official_count = sum(1 for r in all_rooms if r.get("is_official") == 1)
         free_count = total_count - official_count
@@ -183,4 +196,4 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
                 st.dataframe(df_top10, use_container_width=True, hide_index=True, column_config={"ルームID": st.column_config.LinkColumn("ルームID", display_text=r"room_id=(\d+)$")})
 
 elif not selected_event_names and mode == "個別選択":
-    st.warning("対象의 イベントを1つ以上選択してください。")
+    st.warning("対象のイベントを1つ以上選択してください。")
