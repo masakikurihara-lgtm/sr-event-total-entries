@@ -146,7 +146,8 @@ if st.button('属性分析を開始', type='primary') and selected_event_names:
         all_summary.append({
             "event_id": eid,
             "full_name": ename,
-            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
+            # "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", "Vol."),
+            "short_name": ename.replace("SHOWROOM ビギナーチャレンジ ", ""),
             "event_url": event_url,
             "period": event_period,
             "total": total_count,
